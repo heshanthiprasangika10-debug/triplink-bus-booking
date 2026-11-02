@@ -1,0 +1,5 @@
+api/secrets.php
+api/outbox/
+*.log
+.vscode/
+Thumbs.db
