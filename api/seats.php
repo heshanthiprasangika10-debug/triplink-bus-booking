@@ -12,7 +12,7 @@ try {
          JOIN buses b ON b.id = t.bus_id
          JOIN cities cf ON cf.id = r.from_city
          JOIN cities ct ON ct.id = r.to_city
-         WHERE t.id = :id"
+         WHERE t.id = :id AND t.status = 'scheduled'"
     );
     $stmt->execute([':id' => $id]);
     $trip = $stmt->fetch();
@@ -24,5 +24,8 @@ try {
 
     json_out(['trip' => $trip, 'booked' => $booked]);
 } catch (Throwable $e) {
-    json_out(['error' => 'Could not load seats'], 500);
+    json_out(array_merge([
+        'error' => 'Could not load seats',
+        'code' => 'seatsFailed',
+    ], api_debug_exception($e)), 500);
 }

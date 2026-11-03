@@ -12,15 +12,23 @@ PHP + MySQL (API) · React (frontend) · HTML/CSS
 
 > Internet connection ona (React, Google Fonts CDN walin load wenawa).
 
+## Author / Contact
+- Email: [heshanthiprasangika10@gmail.com](mailto:heshanthiprasangika10@gmail.com?subject=TripLink%20enquiry)
+- Phone: [+94 76 66 94 397](tel:+94766694397)
+- Address: Matara, Sri Lanka
+- Map: 5.9549, 80.5550 (TripLink Office; update `address`, `lat`, `lng`, `zoom`, and `placeName` in the `CONTACT` object near the top of `assets/js/app.jsx` for your real office location.)
+
+### Existing database schema updates
+Select the `triplink_db` database in phpMyAdmin and run these safe-to-repeat update files in order: `database_update_admin_management.sql`, `database_update_users.sql`, `database_update_round_trip.sql`, then `database_update_admin_analytics.sql`. Do not import `database.sql` into an existing installation because it drops and recreates TripLink tables. To diagnose a local setup, open `http://localhost/triplink/api/health.php`; it is restricted to localhost or a logged-in admin. API exception details are logged to the PHP error log; set `DEBUG` to `true` in `api/config.php` only during local debugging, then return it to `false`.
+
 ### Passenger accounts setup
 phpMyAdmin eke TripLink database eka select karala **Import** → `database_update_users.sql` → **Go** click karanna. Me update eka existing bookings/data makanne naha; safely nawatha run karanna puluwan.
 
-## Hero photos maru karanna
-`assets/js/app.jsx` ekata ihalama thiyena `HERO_IMAGES` list eka:
-```js
-const HERO_IMAGES = ['assets/img/colombo.jpg', 'assets/img/ella.jpg', ...];
-```
-Oyage photos `assets/img/` ekata damala names wenas karanna. Auto change wenawa (SLIDE_MS = 5000ms).
+### Passenger profile photos
+Select the existing application database in phpMyAdmin and run `database_update_avatar.sql` (it is safe to rerun). Ensure Apache can write to `assets/uploads/avatars/` under the project folder. In WAMP's active `php.ini`, set `upload_max_filesize = 6M`, `post_max_size = 8M`, and `memory_limit = 256M`, then restart Apache so PHP can accept the full 5 MB application limit and process large images. Signed-in passengers can manage a profile photo from the account menu; images are validated and re-encoded as metadata-free 512 × 512 JPEGs with 128 × 128 thumbnails. The upload directory blocks script execution and is excluded from Git except for its protection and placeholder files.
+
+## Hero photos
+The current hero placeholders are `hero1.jpg` (6000 × 4000), `hero2.jpg` (6000 × 4000), `hero3.jpg` (6000 × 4000), and `hero4.jpg` (5472 × 3648); replace these placeholder pictures with images you own or that are licensed. The site discovers `hero*.jpg`, `.jpeg`, `.png`, and `.webp` files in `assets/img/` (up to eight, sorted by name), and `api/hero_images.php` adds file-modification cache versions and creates progressive JPEG copies no wider than 1920 pixels for large files in `assets/img/optimized/`. Edit the `HERO_SLIDES` metadata near the top of `assets/js/app.jsx` to customize each known photo's alt text, focus point, overlay and SVG fallback; unlisted filenames receive a generic description and focus. The SVG fallbacks remain in place. The first photo is preloaded from the dynamic image list; remaining slides are loaded when the browser is idle, and the slider changes every five seconds.
 
 ## Folder structure
 ```
@@ -49,6 +57,9 @@ triplink/
 
 > Live tracking uses Leaflet and OpenStreetMap tiles from CDNs, so an internet connection is required.
 
+### View switcher
+The floating right-edge switcher changes the public site between **Mobile version**, **Web version**, or **Auto (recommended)** (long-press the button for Auto). Its choice is stored as `triplink-view` in local storage; a valid `?view=mobile`, `?view=desktop`, or `?view=auto` URL parameter takes precedence. On phones, Web mode sets the viewport width to 1200 so the regular desktop media queries apply; on wider devices, Mobile mode opens the same-origin site in a centred 390px iframe (`?view=mobile&embedded=1`). Embedded booking, login, language settings and maps therefore continue using the same origin and session. The early `assets/js/viewmode.js` script applies the selection before first paint; no build tooling or service worker is required.
+
 ### Round-trip bookings
 Select **Round trip** in the home search, choose a return date, and complete both bus/seat selections before confirming the shared passenger details. Round trips create two booking references linked by a group reference; the outbound and return seats are committed together, so a seat conflict on either leg rolls back both.
 
@@ -63,6 +74,13 @@ TripLink supports English, Sinhala and Tamil. Use the **EN | සිං | த** c
 The admin dashboard includes date-filtered KPIs and Chart.js reports for revenue, routes, occupancy, booking weekdays and bus types. On an existing installation, select the TripLink database in phpMyAdmin and import `database_update_admin_analytics.sql` once; it safely adds the analytics indexes if they are missing. Fresh installs already include those indexes in `database.sql`. Chart.js is loaded from a CDN, so the admin charts require an internet connection.
 
 To verify, open `http://localhost/triplink/admin/`, sign in, and try Today, Last 7 days, Last 30 days, This month and Custom ranges. Compare chart data with the data-table toggles, use PNG downloads, and test search/status filters and pagination under Recent bookings. Confirm a booking cancellation still frees its seats. Dashboard analytics endpoints are `admin/api/stats_kpis.php`, `stats_revenue.php`, `stats_routes.php` and `stats_occupancy.php`; they require the admin session.
+
+### Admin management and reports
+For an existing installation, select the TripLink database in phpMyAdmin and import `database_update_admin_management.sql`. It adds admin entity status/timestamps, city coordinates, trip cancellation status, a unique bus-registration index, and the admin audit table without dropping existing data. If it reports duplicate bus registration numbers, resolve those duplicates first, then import again. Fresh installs already have these fields and tables in `database.sql`.
+
+The admin menu now includes Buses, Routes & Cities, Schedules, Trips, Reports and Audit log. Changes use CSRF-protected POST forms and are recorded in the audit log. Schedule edits update/remove only future trips with no booking rows; trips with bookings are retained. Cancelling a trip keeps its booking/seat history, and passenger notifications are not configured. Reports provide filtered booking, revenue, occupancy, bus and schedule CSV exports, plus a trip passenger manifest; use **Print / Save PDF** and choose “Save as PDF” in the browser.
+
+To verify, import the migration first, then open `http://localhost/triplink/admin/`. Try creating/editing/deactivating a bus, route, city and schedule; test that overlapping schedules are refused and booked trips are preserved. Generate trips, cancel and restore one, then check Audit log and export a CSV/manifest. Existing booking/search pages should hide cancelled trips while preserving their booking records.
 
 ## Test on mobile
 Open `http://localhost/triplink/` in your browser and use DevTools' device toolbar at 375–430px (phones), 768px (tablet), and 1366px (desktop). Check that the navigation drawer opens/closes, route search and seat selection fit the viewport, and the fixed bottom tabs/seat confirmation bar do not cover content. The site includes a lightweight install manifest; no service worker or API caching is used.

@@ -3,16 +3,60 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="assets/js/viewmode.js"></script>
   <meta name="theme-color" content="#04301f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TripLink">
   <title>TripLink | Book Bus Seats Online in Sri Lanka</title>
   <meta name="description" content="Book bus seats online in Sri Lanka with TripLink. Search routes, pick seats from a live seat map and get your ticket instantly.">
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "TripLink",
+      "email": "heshanthiprasangika10@gmail.com",
+      "telephone": "+94766694397",
+      "location": {
+        "@type": "Place",
+        "name": "TripLink Office",
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Matara",
+          "addressCountry": "LK"
+        },
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": 5.9549,
+          "longitude": 80.555
+        }
+      }
+    }
+  </script>
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="assets/img/favicon.svg">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="preload" as="image" href="assets/img/hero1.svg" type="image/svg+xml">
+  <!-- Placeholder photos: replace with images you own or that are licensed. -->
+  <script>
+    window.TripLinkHeroSlidesPromise = fetch('api/hero_images.php', { cache: 'no-store' })
+      .then(function (response) {
+        if (!response.ok) throw new Error('Hero image list unavailable');
+        return response.json();
+      })
+      .then(function (data) {
+        if (!data || !Array.isArray(data.slides) || !data.slides.length) return null;
+        var first = data.slides[0];
+        var preload = document.createElement('link');
+        preload.id = 'hero-image-preload';
+        preload.rel = 'preload';
+        preload.as = 'image';
+        preload.href = first.src;
+        if (first.type) preload.type = first.type;
+        document.head.appendChild(preload);
+        return data.slides;
+      })
+      .catch(function () { return null; });
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;500;600;700&family=Noto+Sans+Tamil:wght@400;500;600;700&family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -20,6 +64,10 @@
 </head>
 <body>
   <div id="root"></div>
+  <div id="view-frame-shell" hidden aria-label="Mobile preview">
+    <iframe id="view-frame" title="TripLink mobile version"></iframe>
+  </div>
+  <div id="view-switcher-root"></div>
 
   <!-- React (CDN, no build step needed: serve with WAMP/XAMPP) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

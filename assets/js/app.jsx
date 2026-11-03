@@ -1,5 +1,19 @@
 const { useState, useEffect, useRef, useCallback } = React;
+const CONTACT = {
+  email: 'heshanthiprasangika10@gmail.com',
+  phoneDisplay: '+94 76 66 94 397',
+  phoneTel: '+94766694397',
+  whatsapp: '94766694397',
+  hours: '6:00 AM - 10:00 PM',
+  // CHANGE THESE to your real office address / coordinates
+  address: 'Matara, Sri Lanka',
+  lat: 5.9549,
+  lng: 80.5550,
+  zoom: 15,
+  placeName: 'TripLink Office',
+};
 const LangContext = React.createContext(null);
+const LocationContext = React.createContext(() => {});
 const t = (key, vars) => window.I18N.t(key, vars);
 const cityName = (name) => window.I18N.cityName(name);
 const busTypeName = (value) => {
@@ -10,6 +24,242 @@ const amenityName = (value) => {
   const keys = { AC: 'amenity.ac', WiFi: 'amenity.wifi', Charging: 'amenity.charging', 'Reclining Seats': 'amenity.reclining' };
   return keys[value] ? t(keys[value]) : value;
 };
+
+function ContactIcon({ type }) {
+  const paths = {
+    mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></>,
+    phone: <path d="M7 3H5a2 2 0 0 0-2 2c0 8.84 7.16 16 16 16a2 2 0 0 0 2-2v-2l-5-2-2 3a14 14 0 0 1-7-7l3-2-2-5H7Z" />,
+    whatsapp: <><path d="M20.5 11.6a8.6 8.6 0 0 1-12.7 7.5L3 20l.9-4.6a8.6 8.6 0 1 1 16.6-3.8Z" /><path d="M8.2 7.8c.3-.6.7-.6 1-.6h.5c.2 0 .4.1.5.4l.8 1.8c.1.2.1.4 0 .6l-.6.8c-.2.2-.2.4 0 .6.5.9 1.3 1.7 2.2 2.2.2.1.4.1.6-.1l.8-1c.2-.2.4-.2.6-.1l1.8.8c.3.1.4.3.4.5 0 .3-.1 1-.6 1.4-.5.5-1.2.8-2 .7-1.1-.1-2.5-.7-4-2-1.3-1.1-2.2-2.5-2.5-3.5-.3-1.1.1-2 .5-2.5Z" /></>,
+    pin: <><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></>,
+  };
+  return <svg className={`contact-icon contact-icon-${type}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[type]}</svg>;
+}
+
+function LocationLink({ className = '' }) {
+  const openLocation = React.useContext(LocationContext);
+  return (
+    <button type="button" className={`location-link ${className}`.trim()} onClick={(event) => openLocation(event.currentTarget)} aria-label={t('location.showMap')}>
+      <ContactIcon type="pin" /><span>{CONTACT.address}</span>
+    </button>
+  );
+}
+
+function LocationModal({ open, onClose, triggerRef }) {
+  const mapNode = useRef(null);
+  const mapRef = useRef(null);
+  const [mapError, setMapError] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef(null);
+  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${CONTACT.lat},${CONTACT.lng}`;
+  const searchUrl = `https://www.google.com/maps/search/?api=1&query=${CONTACT.lat},${CONTACT.lng}`;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const dialog = mapNode.current && mapNode.current.closest('[role="dialog"]');
+    const focusable = () => dialog
+      ? Array.from(dialog.querySelectorAll('a[href], button:not(:disabled), [tabindex]:not([tabindex="-1"])')).filter((item) => item.offsetParent !== null)
+      : [];
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    const focusFrame = window.requestAnimationFrame(() => {
+      const closeButton = dialog && dialog.querySelector('.location-close');
+      if (closeButton) closeButton.focus();
+    });
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      window.cancelAnimationFrame(focusFrame);
+      window.clearTimeout(copyTimer.current);
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+      if (triggerRef.current && triggerRef.current.isConnected) triggerRef.current.focus();
+    };
+  }, [open, onClose, triggerRef]);
+
+  useEffect(() => {
+    if (!open || !mapNode.current) return undefined;
+    if (!window.L) {
+      setMapError(true);
+      return undefined;
+    }
+    setMapError(false);
+    let map;
+    let resizeTimer;
+    let frame;
+    try {
+      map = window.L.map(mapNode.current, { scrollWheelZoom: false, zoomControl: true })
+        .setView([CONTACT.lat, CONTACT.lng], CONTACT.zoom);
+      mapRef.current = map;
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>',
+      }).addTo(map);
+      const icon = window.L.divIcon({
+        className: 'triplink-location-marker',
+        html: '<span class="triplink-location-pin"><svg viewBox="0 0 32 40" aria-hidden="true"><path d="M16 1C7.7 1 1 7.7 1 16c0 10.1 15 23 15 23s15-12.9 15-23C31 7.7 24.3 1 16 1Z" fill="#f2b632" stroke="#04301f" stroke-width="2"/><rect x="7.5" y="12" width="17" height="12" rx="2" fill="#04301f"/><path d="M10 10h12l2 3H8l2-3Zm-.5 8h13M10 24v2m12-2v2" fill="none" stroke="#f2b632" stroke-width="1.5"/><circle cx="11" cy="24" r="1.5" fill="#fff"/><circle cx="21" cy="24" r="1.5" fill="#fff"/></svg></span>',
+        iconSize: [42, 52],
+        iconAnchor: [21, 48],
+        popupAnchor: [0, -44],
+      });
+      const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[char]));
+      window.L.marker([CONTACT.lat, CONTACT.lng], { icon }).addTo(map)
+        .bindPopup(`<strong>${escapeHtml(CONTACT.placeName)}</strong><br>${escapeHtml(CONTACT.address)}`)
+        .openPopup();
+      map.on('click', () => map.scrollWheelZoom.enable());
+      frame = window.requestAnimationFrame(() => {
+        resizeTimer = window.setTimeout(() => {
+          if (mapRef.current === map) map.invalidateSize();
+        }, 120);
+      });
+    } catch (error) {
+      if (map) map.remove();
+      mapRef.current = null;
+      setMapError(true);
+    }
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(resizeTimer);
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, [open]);
+
+  if (!open) return null;
+  const copyAddress = async () => {
+    let success = false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(CONTACT.address);
+        success = true;
+      } catch (error) {
+        success = false;
+      }
+    }
+    if (!success) {
+      let field;
+      try {
+        field = document.createElement('textarea');
+        field.value = CONTACT.address;
+        field.setAttribute('readonly', '');
+        field.style.position = 'fixed';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        success = document.execCommand('copy');
+      } catch (error) {
+        success = false;
+      } finally {
+        if (field && field.parentNode) field.parentNode.removeChild(field);
+      }
+    }
+    if (success) {
+      setCopied(true);
+      window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopied(false), 1800);
+    }
+  };
+  return (
+    <div className="location-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="location-dialog" role="dialog" aria-modal="true" aria-labelledby="location-dialog-title">
+        <div className="location-dialog-head">
+          <div><h2 id="location-dialog-title">{t('location.title')}</h2><p>{CONTACT.address}</p></div>
+          <button type="button" className="location-close" onClick={onClose} aria-label={t('location.close')}>×</button>
+        </div>
+        {!mapError
+          ? <div ref={mapNode} className="location-map" role="application" aria-label={t('location.mapLabel')} />
+          : <div className="location-map-fallback"><ContactIcon type="pin" /><span>{CONTACT.address}</span><a href={searchUrl} target="_blank" rel="noopener noreferrer">{t('location.openMaps')}</a></div>}
+        <div className="location-actions">
+          <a className="btn gold" href={directionsUrl} target="_blank" rel="noopener noreferrer">{t('location.directions')}</a>
+          <a className="btn ghost" href={searchUrl} target="_blank" rel="noopener noreferrer">{t('location.openMaps')}</a>
+          <button type="button" className="btn ghost location-copy" onClick={copyAddress}>{t(copied ? 'location.copied' : 'location.copyAddress')}</button>
+        </div>
+        {copied && <span className="location-copy-toast" role="status" aria-live="polite">{t('location.copied')}</span>}
+      </section>
+    </div>
+  );
+}
+
+function CopyContactButton({ value, item }) {
+  const [message, setMessage] = useState('');
+  const timer = useRef(null);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const copy = async () => {
+    let copied = false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(value);
+        copied = true;
+      } catch (error) {
+        copied = false;
+      }
+    }
+    if (!copied) {
+      let field;
+      try {
+        field = document.createElement('textarea');
+        field.value = value;
+        field.setAttribute('readonly', '');
+        field.style.position = 'fixed';
+        field.style.opacity = '0';
+        document.body.appendChild(field);
+        field.select();
+        copied = document.execCommand('copy');
+      } catch (error) {
+        copied = false;
+      } finally {
+        if (field && field.parentNode) field.parentNode.removeChild(field);
+      }
+    }
+    setMessage(t(copied ? 'contact.copied' : 'contact.copyFailed'));
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setMessage(''), 1800);
+  };
+  return (
+    <span className="contact-copy-wrap">
+      <button type="button" className="contact-copy" onClick={copy} aria-label={t('contact.copy', { item })}>{t('contact.copyAction')}</button>
+      {message && <span className="contact-copy-toast" role="status" aria-live="polite">{message}</span>}
+    </span>
+  );
+}
+
+function ContactHelp() {
+  return (
+    <div className="contact-help no-print">
+      <b>{t('contact.needHelp')}</b>
+      <a href={`tel:${CONTACT.phoneTel}`} aria-label={t('contact.callAria')}><ContactIcon type="phone" />{CONTACT.phoneDisplay}</a>
+      <a href={`mailto:${CONTACT.email}?subject=TripLink%20enquiry`} aria-label={t('contact.emailAria')}><ContactIcon type="mail" />{CONTACT.email}</a>
+      <a className="contact-whatsapp-link" href={`https://wa.me/${CONTACT.whatsapp}?text=Hi%20TripLink%2C%20I%20need%20help%20with%20my%20booking`} target="_blank" rel="noopener noreferrer" aria-label={t('contact.whatsappAria')}><ContactIcon type="whatsapp" />{t('contact.whatsappUs')}</a>
+      <LocationLink />
+    </div>
+  );
+}
 
 function LangProvider({ children }) {
   const [lang, setLangState] = useState(() => window.I18N.getLanguage());
@@ -22,14 +272,175 @@ function LangProvider({ children }) {
 }
 const useLang = () => React.useContext(LangContext);
 
+function useViewMode() {
+  const [view, setView] = useState(() => window.TripLinkView.get());
+  const [mode, setMode] = useState(() => window.TripLinkView.getMode());
+  useEffect(() => window.TripLinkView.onChange((change) => {
+    setView(change.effective);
+    setMode(change.mode);
+  }), []);
+  return { view, mode };
+}
+
+function ViewSwitcher() {
+  const { view, mode } = useViewMode();
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      const seen = window.localStorage.getItem('triplink-view-switcher-seen') === '1';
+      if (!seen) window.localStorage.setItem('triplink-view-switcher-seen', '1');
+      return !seen;
+    } catch (error) {
+      return true;
+    }
+  });
+  const [toast, setToast] = useState('');
+  const longPress = useRef(false);
+  const pressTimer = useRef(null);
+  const hideTimer = useRef(null);
+  const firstShownAt = useRef(Date.now());
+  const wrapper = useRef(null);
+
+  const keepVisible = useCallback((duration) => {
+    window.clearTimeout(hideTimer.current);
+    setExpanded(true);
+    try {
+      window.localStorage.setItem('triplink-view-switcher-seen', '1');
+    } catch (error) {
+      // The control remains usable when storage is disabled.
+    }
+    hideTimer.current = window.setTimeout(() => {
+      if (!open && wrapper.current && !wrapper.current.matches(':hover, :focus-within')) setExpanded(false);
+    }, duration);
+  }, [open]);
+
+  useEffect(() => {
+    const firstVisit = expanded;
+    const remaining = Math.max(0, 6000 - (Date.now() - firstShownAt.current));
+    hideTimer.current = window.setTimeout(() => {
+      if (firstVisit && !wrapper.current?.matches(':hover, :focus-within')) setExpanded(false);
+      else if (!firstVisit) setExpanded(false);
+    }, firstVisit ? remaining : 0);
+    return () => window.clearTimeout(hideTimer.current);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.TripLinkView.onChange((change) => {
+      if (change.source === 'user') {
+        setToast(change.mode === 'auto'
+          ? t('view.autoToast')
+          : t(change.effective === 'mobile' ? 'view.mobileToast' : 'view.desktopToast'));
+        window.setTimeout(() => setToast(''), 2400);
+        keepVisible(4000);
+      } else if (change.source === 'frame-error') {
+        setToast(t('view.frameFallback'));
+        window.setTimeout(() => setToast(''), 4000);
+      }
+    });
+    return () => {
+      unsubscribe();
+      window.clearTimeout(hideTimer.current);
+      window.clearTimeout(pressTimer.current);
+    };
+  }, [keepVisible]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const closeOnOutside = (event) => {
+      if (wrapper.current && !wrapper.current.contains(event.target)) setOpen(false);
+    };
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+        wrapper.current?.querySelector('.view-switcher-toggle')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  if (new URLSearchParams(window.location.search).get('embedded') === '1') return null;
+
+  const targetMode = view === 'mobile' ? 'desktop' : 'mobile';
+  const targetLabel = t(targetMode === 'mobile' ? 'view.mobileVersion' : 'view.webVersion');
+  const icon = view === 'mobile'
+    ? <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4M7 8h10" /></svg>
+    : <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2" /><path d="M10 5h4m-4 14h4" /></svg>;
+
+  const beginPress = () => {
+    longPress.current = false;
+    window.clearTimeout(pressTimer.current);
+    pressTimer.current = window.setTimeout(() => {
+      longPress.current = true;
+      setOpen(true);
+      keepVisible(4000);
+    }, 550);
+  };
+  const endPress = () => window.clearTimeout(pressTimer.current);
+  const toggleView = () => {
+    if (longPress.current) {
+      longPress.current = false;
+      return;
+    }
+    window.TripLinkView.set(targetMode);
+  };
+
+  return (
+    <div
+      className={`view-switcher${expanded || open ? '' : ' is-collapsed'}`}
+      data-mode={view}
+      ref={wrapper}
+      onPointerEnter={() => { setExpanded(true); window.clearTimeout(hideTimer.current); }}
+      onPointerLeave={() => keepVisible(4000)}
+      onFocus={() => { setExpanded(true); window.clearTimeout(hideTimer.current); }}
+      onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) keepVisible(4000); }}
+    >
+      <button
+        type="button"
+        className="view-switcher-toggle"
+        aria-label={t(targetMode === 'mobile' ? 'view.switchToMobile' : 'view.switchToWeb')}
+        aria-pressed={view === 'mobile'}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={targetLabel}
+        onPointerDown={beginPress}
+        onPointerUp={endPress}
+        onPointerCancel={endPress}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || (event.altKey && event.key === 'ArrowDown')) {
+            event.preventDefault();
+            setOpen(true);
+            keepVisible(4000);
+            window.setTimeout(() => wrapper.current?.querySelector('[role="menuitem"]')?.focus(), 0);
+          }
+        }}
+        onContextMenu={(event) => { event.preventDefault(); setOpen(true); keepVisible(4000); }}
+        onClick={toggleView}
+      >
+        <span className="view-switcher-icon">{icon}</span>
+        <span className="view-switcher-tooltip">{targetLabel}</span>
+      </button>
+      {open && <div className="view-switcher-menu" role="menu" aria-label={t('view.menuLabel')}>
+        <button type="button" role="menuitem" onClick={() => { setOpen(false); window.TripLinkView.set('auto'); }}>
+          {t('view.auto')}
+        </button>
+      </div>}
+      {toast && <div className="view-switcher-toast" role="status" aria-live="polite">{toast}</div>}
+    </div>
+  );
+}
+
 /* ================= CONFIG ================= */
 const API = 'api/';
-// Hero slider images. Replace with your own photos (e.g. 'assets/img/colombo.jpg') — they auto-change every 5s.
-const HERO_IMAGES = [
-  'assets/img/hero1.svg',
-  'assets/img/hero2.svg',
-  'assets/img/hero3.svg',
-  'assets/img/hero4.svg',
+const HERO_SLIDES = [
+  { src: 'assets/img/hero1.jpg', fallback: 'assets/img/hero1.svg', focus: '72% 58%', alt: 'Blue city bus in busy urban traffic', overlay: { start: '.98', mid: '.88', end: '.62' } },
+  { src: 'assets/img/hero2.jpg', fallback: 'assets/img/hero2.svg', focus: '34% 55%', alt: 'Green city bus among urban traffic', overlay: { start: '.97', mid: '.86', end: '.60' } },
+  { src: 'assets/img/hero3.jpg', fallback: 'assets/img/hero3.svg', focus: '43% 54%', alt: 'Green bus moving through a city street', overlay: { start: '.97', mid: '.85', end: '.58' } },
+  { src: 'assets/img/hero4.jpg', fallback: 'assets/img/hero4.svg', focus: '70% 54%', alt: 'White city bus on an urban street', overlay: { start: '.99', mid: '.90', end: '.66' } },
 ];
 const SLIDE_MS = 5000;
 
@@ -47,6 +458,7 @@ const post = async (path, body) => {
   return d;
 };
 const errorMessage = (error) => {
+  if (error && error.data && error.data.debug_message) return error.data.debug_message;
   const key = error && error.data && error.data.code;
   const translationKey = key ? `api.${key}` : '';
   return translationKey && Object.prototype.hasOwnProperty.call(window.I18N.dictionaries.en, translationKey)
@@ -181,6 +593,42 @@ const Logo = ({ onClick, height }) => (
   <img className="logo" src="assets/img/logo.svg" alt="TripLink" loading="lazy" decoding="async" onClick={onClick} style={height ? { height } : null} />
 );
 
+function initialsForName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return parts.slice(0, 2).map((part) => Array.from(part)[0] || '').join('').toLocaleUpperCase();
+}
+
+function Avatar({ user, size = 40, className = '', onClick, ariaLabel, editBadge = false }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const [useFullImage, setUseFullImage] = useState(false);
+  const fullPhotoUrl = user && user.avatar_url;
+  const thumbnailUrl = size <= 40 && user && user.avatar_thumb_url;
+  const photoUrl = thumbnailUrl && !useFullImage ? thumbnailUrl : fullPhotoUrl;
+  useEffect(() => {
+    setImageFailed(false);
+    setUseFullImage(false);
+  }, [fullPhotoUrl, thumbnailUrl]);
+  const name = user && user.name || '';
+  let colorHash = 0;
+  for (const character of name) colorHash = (colorHash * 31 + character.codePointAt(0)) >>> 0;
+  const color = `hsl(${colorHash % 360} 48% 34%)`;
+  const content = (
+    <>
+      {photoUrl && !imageFailed
+        ? <img src={photoUrl} alt="" loading="lazy" decoding="async" onError={() => {
+          if (thumbnailUrl && !useFullImage) setUseFullImage(true);
+          else setImageFailed(true);
+        }} />
+        : <span aria-hidden="true">{(user && user.initials) || initialsForName(name) || '?'}</span>}
+      {editBadge && <i className="avatar-edit-badge" aria-hidden="true">✎</i>}
+    </>
+  );
+  const style = { width: size, height: size, '--avatar-color': color };
+  return onClick
+    ? <button type="button" className={`avatar ${className}`.trim()} style={style} onClick={onClick} aria-label={ariaLabel}>{content}</button>
+    : <span className={`avatar ${className}`.trim()} style={style} aria-label={ariaLabel}>{content}</span>;
+}
+
 /* ================= NAV ================= */
 function Nav({ page, go, user, onLogin, onLogout, onBookings }) {
   const { lang, setLang } = useLang();
@@ -229,8 +677,11 @@ function Nav({ page, go, user, onLogin, onLogout, onBookings }) {
             : <li><button className={page === 'manage' ? 'active' : ''} onClick={() => nav('manage')}>{t('nav.findBooking')}</button></li>}
           {user
             ? <li className="nav-account">
-                <button className="nav-account-name" aria-expanded={userMenu} onClick={() => setUserMenu(!userMenu)}>{user.name.split(/\s+/)[0]} ▾</button>
-                {userMenu && <div className="nav-account-menu"><button onClick={() => { setOpen(false); setUserMenu(false); onLogout(); }}>{t('nav.logout')}</button></div>}
+                <button className="nav-account-name" aria-expanded={userMenu} onClick={() => setUserMenu(!userMenu)}><Avatar user={user} size={32} className="avatar-nav" /><span>{user.name.split(/\s+/)[0]}</span><span aria-hidden="true">▾</span></button>
+                {userMenu && <div className="nav-account-menu">
+                  <button onClick={() => nav('profile')}>{t('nav.profile')}</button>
+                  <button onClick={() => { setOpen(false); setUserMenu(false); onLogout(); }}>{t('nav.logout')}</button>
+                </div>}
               </li>
             : <li><button onClick={() => { setOpen(false); onLogin(); }}>{t('nav.login')}</button></li>}
           <li className="language-switcher" role="group" aria-label={t('nav.language')}>
@@ -244,19 +695,120 @@ function Nav({ page, go, user, onLogin, onLogout, onBookings }) {
 }
 
 /* ================= HERO + SEARCH ================= */
-function Hero({ cities, onSearch }) {
+function Hero({ cities, destinations, onSearch }) {
   const [idx, setIdx] = useState(0);
+  const [slides, setSlides] = useState([]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
+  const [showAllDestinations, setShowAllDestinations] = useState(false);
   const [date, setDate] = useState(todayStr());
   const [tripMode, setTripMode] = useState('oneway');
   const [returnDate, setReturnDate] = useState(todayStr());
   const [err, setErr] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [pageVisible, setPageVisible] = useState(() => !document.hidden);
 
   useEffect(() => {
-    const t = setInterval(() => setIdx((i) => (i + 1) % HERO_IMAGES.length), SLIDE_MS);
-    return () => clearInterval(t);
+    let cancelled = false;
+    const config = window.TripLinkHeroSlidesPromise || Promise.resolve(null);
+    config.then((remoteSlides) => {
+      if (cancelled) return;
+      const sourceSlides = Array.isArray(remoteSlides) && remoteSlides.length
+        ? remoteSlides
+        : HERO_SLIDES;
+      setSlides(sourceSlides.map((slide) => ({
+        ...slide,
+        overlay: slide.overlay || { start: '.97', mid: '.84', end: '.58' },
+        displaySrc: slide.src,
+        naturalWidth: 0,
+        naturalHeight: 0,
+        fit: 'cover',
+        ready: false,
+      })));
+      setIdx(0);
+    });
+    return () => { cancelled = true; };
   }, []);
+
+  const slideSignature = slides.map((slide) => slide.src).join('|');
+  useEffect(() => {
+    if (!slides.length) return undefined;
+    let cancelled = false;
+    let idleHandle;
+    let timeoutHandle;
+    const loadSlide = (index) => {
+      const slide = slides[index];
+      if (!slide) return;
+      const image = new Image();
+      image.decoding = 'async';
+      image.onload = () => {
+        if (cancelled) return;
+        const naturalWidth = image.naturalWidth || 0;
+        setSlides((current) => current.map((item, itemIndex) => itemIndex === index
+          && item.src === slide.src
+          ? {
+            ...item, displaySrc: slide.src, naturalWidth, naturalHeight: image.naturalHeight || 0,
+            fit: naturalWidth >= 900 ? 'cover' : 'contain', ready: true,
+          }
+          : item));
+      };
+      image.onerror = () => {
+        if (cancelled) return;
+        setSlides((current) => current.map((item, itemIndex) => itemIndex === index
+          && item.src === slide.src
+          ? { ...item, displaySrc: slide.fallback, naturalWidth: 0, naturalHeight: 0, fit: 'cover', ready: true }
+          : item));
+      };
+      image.src = slide.src;
+    };
+
+    loadSlide(0);
+    const loadRemaining = () => slides.slice(1).forEach((_, offset) => loadSlide(offset + 1));
+    if (window.requestIdleCallback) idleHandle = window.requestIdleCallback(loadRemaining, { timeout: 2500 });
+    else timeoutHandle = window.setTimeout(loadRemaining, 800);
+    return () => {
+      cancelled = true;
+      if (idleHandle !== undefined && window.cancelIdleCallback) window.cancelIdleCallback(idleHandle);
+      window.clearTimeout(timeoutHandle);
+    };
+  }, [slideSignature]);
+
+  useEffect(() => {
+    const updateVisibility = () => setPageVisible(!document.hidden);
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (searchFocused || !pageVisible || slides.length < 2) return undefined;
+    const timer = window.setInterval(() => {
+      const searchForm = document.querySelector('#top .search');
+      if (document.hidden || (searchForm && searchForm.contains(document.activeElement))) return;
+      setIdx((current) => (current + 1) % slides.length);
+    }, SLIDE_MS);
+    return () => window.clearInterval(timer);
+  }, [searchFocused, pageVisible, slides.length]);
+
+  const useFallback = (index) => {
+    setSlides((current) => current.map((slide, slideIndex) => slideIndex === index && slide.displaySrc !== slide.fallback
+      ? { ...slide, displaySrc: slide.fallback, naturalWidth: 0, naturalHeight: 0, fit: 'cover', ready: true }
+      : slide));
+  };
+  const swipeStart = (event) => {
+    if (event.target instanceof Element && event.target.closest('.search')) return;
+    if (event.touches[0]) event.currentTarget.dataset.touchStartX = event.touches[0].clientX;
+  };
+  const swipeEnd = (event) => {
+    if (event.target instanceof Element && event.target.closest('.search')) return;
+    const start = Number(event.currentTarget.dataset.touchStartX);
+    const end = event.changedTouches[0] && event.changedTouches[0].clientX;
+    if (Number.isFinite(start) && Number.isFinite(end) && Math.abs(end - start) > 48) {
+      setIdx((current) => slides.length
+        ? (current + (end < start ? 1 : slides.length - 1)) % slides.length
+        : current);
+    }
+    delete event.currentTarget.dataset.touchStartX;
+  };
 
   const submit = (e) => {
     e.preventDefault();
@@ -265,29 +817,68 @@ function Hero({ cities, onSearch }) {
     if (tripMode === 'round' && returnDate < date) return setErr(t('home.errReturnDate'));
     setErr(''); onSearch({ from, to, date, tripMode, returnDate });
   };
-  const swap = () => { setFrom(to); setTo(from); };
+  const availableDestinations = (origin) => (destinations && destinations[String(origin)]) || [];
+  const hasRoute = (origin, destination) => availableDestinations(origin).some((id) => String(id) === String(destination));
+  const destinationOptions = from && !showAllDestinations
+    ? cities.filter((city) => availableDestinations(from).some((id) => String(id) === String(city.id)))
+    : cities;
+  const changeFrom = (nextFrom) => {
+    setFrom(nextFrom);
+    if (!showAllDestinations && to && !hasRoute(nextFrom, to)) setTo('');
+  };
+  const toggleAllDestinations = () => {
+    if (showAllDestinations && !hasRoute(from, to)) setTo('');
+    setShowAllDestinations((current) => !current);
+  };
+  const swap = () => {
+    if (!hasRoute(to, from)) setShowAllDestinations(true);
+    setFrom(to);
+    setTo(from);
+  };
 
   return (
-    <section className="hero" id="top">
-      {HERO_IMAGES.map((src, i) => (
-        <div key={src} className={'slide ' + (i === idx ? 'on' : '')} style={{ backgroundImage: `url(${src})` }} />
+    <section className="hero" id="top" onTouchStart={swipeStart} onTouchEnd={swipeEnd}>
+      {slides.map((slide, i) => (
+        <div key={slide.src} className={'slide ' + (i === idx ? 'on' : '')} aria-hidden={i !== idx} style={{
+          '--slide-focus': slide.focus,
+          '--overlay-start': slide.overlay.start,
+          '--overlay-mid': slide.overlay.mid,
+          '--overlay-end': slide.overlay.end,
+        }}>
+          <div className="slide-backdrop" aria-hidden="true" style={{ backgroundImage: `url("${slide.displaySrc}")`, '--slide-focus': slide.focus }} />
+          <div className="slide-image-wrap" data-fit={slide.fit} style={{ '--slide-focus': slide.focus, '--natural-width': `${slide.naturalWidth}px` }}>
+            <img
+              className={'slide-photo ' + (slide.ready ? 'ready' : '')}
+              src={slide.displaySrc}
+              alt={slide.alt}
+              aria-label={slide.alt}
+              decoding="async"
+              width={slide.naturalWidth || 1600}
+              height={slide.naturalHeight || 900}
+              onError={() => useFallback(i)}
+            />
+          </div>
+        </div>
       ))}
-      <div className="container fade" onTouchStart={(event) => { if (event.touches[0]) event.currentTarget.dataset.touchStartX = event.touches[0].clientX; }} onTouchEnd={(event) => {
-        const start = Number(event.currentTarget.dataset.touchStartX);
-        const end = event.changedTouches[0] && event.changedTouches[0].clientX;
-        if (Number.isFinite(start) && Number.isFinite(end) && Math.abs(end - start) > 48) setIdx((current) => (current + (end < start ? 1 : HERO_IMAGES.length - 1)) % HERO_IMAGES.length);
-      }}>
+      <div className="container fade">
         <h1>{t('home.title1')}<br /><span>{t('home.title2')}</span></h1>
         <p className="sub">{t('home.subtitle')}</p>
 
-        <form className={'search ' + (tripMode === 'round' ? 'round-trip-search' : '')} onSubmit={submit}>
+        <form
+          className={'search ' + (tripMode === 'round' ? 'round-trip-search' : '')}
+          onSubmit={submit}
+          onFocusCapture={() => setSearchFocused(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false);
+          }}
+        >
           <div className="search-mode" role="group" aria-label={t('home.tripType')}>
             <button type="button" className={tripMode === 'oneway' ? 'active' : ''} aria-pressed={tripMode === 'oneway'} onClick={() => setTripMode('oneway')}>{t('home.oneWay')}</button>
             <button type="button" className={tripMode === 'round' ? 'active' : ''} aria-pressed={tripMode === 'round'} onClick={() => setTripMode('round')}>{t('home.roundTrip')}</button>
           </div>
           <div className="field search-from">
             <label>{t('home.from')}</label>
-            <select value={from} onChange={(e) => setFrom(e.target.value)}>
+            <select value={from} onChange={(e) => changeFrom(e.target.value)}>
               <option value="">{t('home.pickup')}</option>
               {cities.map((c) => <option key={c.id} value={c.id}>{cityName(c.name)}</option>)}
             </select>
@@ -297,8 +888,11 @@ function Hero({ cities, onSearch }) {
             <label>{t('home.to')}</label>
             <select value={to} onChange={(e) => setTo(e.target.value)}>
               <option value="">{t('home.destination')}</option>
-              {cities.map((c) => <option key={c.id} value={c.id}>{cityName(c.name)}</option>)}
+              {destinationOptions.map((c) => <option key={c.id} value={c.id}>{cityName(c.name)}</option>)}
             </select>
+            {from && <button type="button" className="text-link destination-fallback" onClick={toggleAllDestinations}>
+              {t(showAllDestinations ? 'home.showRouteDestinations' : 'home.showAllDestinations')}
+            </button>}
           </div>
           <div className="field search-date">
             <label htmlFor="trip-departure-date">{t('home.departureDate')}</label>
@@ -319,7 +913,7 @@ function Hero({ cities, onSearch }) {
         </div>
       </div>
       <div className="dots">
-        {HERO_IMAGES.map((_, i) => <button key={i} className={i === idx ? 'on' : ''} onClick={() => setIdx(i)} aria-label={t('home.slide', { number: i + 1 })} />)}
+        {slides.map((slide, i) => <button type="button" key={slide.src} className={i === idx ? 'on' : ''} aria-current={i === idx ? 'true' : undefined} onClick={() => setIdx(i)} aria-label={t('home.slide', { number: i + 1 })} />)}
       </div>
     </section>
   );
@@ -381,6 +975,33 @@ function How() {
   );
 }
 
+function ContactSection() {
+  return (
+    <section className="block contact-section" id="contact">
+      <div className="container">
+        <div className="title">
+          <small>{t('contact.eyebrow')}</small>
+          <h2>{t('contact.title')}</h2>
+          <p>{t('contact.intro')}</p>
+        </div>
+        <div className="contact-actions">
+          <a className="contact-action contact-action-call" href={`tel:${CONTACT.phoneTel}`} aria-label={t('contact.callAria')}>
+            <ContactIcon type="phone" /><span>{t('contact.callUs')}</span><b>{CONTACT.phoneDisplay}</b>
+          </a>
+          <a className="contact-action contact-action-whatsapp" href={`https://wa.me/${CONTACT.whatsapp}?text=Hi%20TripLink%2C%20I%20need%20help%20with%20my%20booking`} target="_blank" rel="noopener noreferrer" aria-label={t('contact.whatsappAria')}>
+            <ContactIcon type="whatsapp" /><span>{t('contact.whatsappUs')}</span><b>{t('contact.messageInstantly')}</b>
+          </a>
+          <a className="contact-action contact-action-email" href={`mailto:${CONTACT.email}?subject=TripLink%20enquiry`} aria-label={t('contact.emailAria')}>
+            <ContactIcon type="mail" /><span>{t('contact.emailUs')}</span><b>{CONTACT.email}</b>
+          </a>
+        </div>
+        <p className="contact-hours">{t('contact.hours', { hours: CONTACT.hours })}</p>
+        <LocationLink className="contact-section-location" />
+      </div>
+    </section>
+  );
+}
+
 function Footer({ go, onBookings, onLogin }) {
   return (
     <footer>
@@ -392,7 +1013,18 @@ function Footer({ go, onBookings, onLogin }) {
           </div>
           <div><h4>{t('footer.quick')}</h4><ul><li><button className="footer-link" onClick={() => go('home')}>{t('footer.home')}</button></li><li><button className="footer-link" onClick={() => go('home', 'routes')}>{t('footer.routes')}</button></li><li><button className="footer-link" onClick={onBookings}>{t('footer.booking')}</button></li><li><button className="footer-link" onClick={onLogin}>{t('footer.loginSignup')}</button></li></ul></div>
           <div><h4>{t('footer.support')}</h4><ul><li>{t('footer.online')}</li><li>{t('footer.cancel')}</li><li>{t('footer.faq')}</li></ul></div>
-          <div><h4>{t('footer.contact')}</h4><ul><li>📞 +94 77 000 0000</li><li>✉️ hello@triplink.lk</li><li>📍 {cityName('Matara')}, {window.I18N.getLanguage() === 'en' ? 'Sri Lanka' : window.I18N.getLanguage() === 'si' ? 'ශ්‍රී ලංකාව' : 'இலங்கை'}</li></ul></div>
+          <div className="footer-contact"><h4>{t('footer.contact')}</h4><ul>
+            <li className="footer-contact-row">
+              <a className="contact-link" href={`tel:${CONTACT.phoneTel}`} aria-label={t('contact.callAria')}><ContactIcon type="phone" /><span>{CONTACT.phoneDisplay}</span></a>
+              <CopyContactButton value={CONTACT.phoneTel} item={t('contact.phone')} />
+              <a className="contact-whatsapp-icon" href={`https://wa.me/${CONTACT.whatsapp}?text=Hi%20TripLink%2C%20I%20need%20help%20with%20my%20booking`} target="_blank" rel="noopener noreferrer" aria-label={t('contact.whatsappAria')}><ContactIcon type="whatsapp" /></a>
+            </li>
+            <li className="footer-contact-row">
+              <a className="contact-link" href={`mailto:${CONTACT.email}?subject=TripLink%20enquiry`} aria-label={t('contact.emailAria')}><ContactIcon type="mail" /><span>{CONTACT.email}</span></a>
+              <CopyContactButton value={CONTACT.email} item={t('contact.email')} />
+            </li>
+            <li><LocationLink className="footer-location" /></li>
+          </ul></div>
         </div>
         <div className="copy">© {new Date().getFullYear()} TripLink. {t('footer.rights')} · {t('footer.student')}</div>
       </div>
@@ -548,8 +1180,9 @@ function FilterDrawer({ open, onClose, onReset, count, children, drawerRef, trig
   );
 }
 
-function Results({ query, cities, onSelect, onBack, roundTripStage, outboundSelection, onChangeOutbound }) {
+function Results({ query, cities, onSelect, onSearch, onBack, roundTripStage, outboundSelection, onChangeOutbound }) {
   const [trips, setTrips] = useState(null);
+  const [searchInfo, setSearchInfo] = useState(null);
   const [err, setErr] = useState('');
   const filterIdentity = `${query.from}:${query.to}:${query.date}`;
   const [filters, setFilters] = useState(() => loadResultFilters(filterIdentity));
@@ -560,11 +1193,12 @@ function Results({ query, cities, onSelect, onBack, roundTripStage, outboundSele
   const name = (id) => cityName((cities.find((c) => String(c.id) === String(id)) || {}).name || '');
 
   useEffect(() => {
-    setTrips(null); setErr('');
+    setTrips(null); setSearchInfo(null); setErr('');
     let active = true;
     get(`search.php?from=${query.from}&to=${query.to}&date=${query.date}`)
       .then((d) => {
         if (!active) return;
+        setSearchInfo(d);
         const isReturn = roundTripStage === 'returnResults' && outboundSelection;
         const arrivalDateTime = isReturn ? tripArrivalDateTime(outboundSelection.trip) : '';
         const eligible = isReturn
@@ -647,7 +1281,33 @@ function Results({ query, cities, onSelect, onBack, roundTripStage, outboundSele
       <div className="page results-page" style={{ paddingTop: 36 }}><div className="container">
         {err && <div className="err">{err}</div>}
         {!trips && !err && <div className="result-skeletons" aria-label={t('results.loading')}>{[1, 2, 3].map((item) => <div className="result-skeleton" key={item}><i /><i /><i /><i /></div>)}</div>}
-        {trips && trips.length === 0 && !err && <div className="empty">{t('results.noBuses')}</div>}
+        {trips && trips.length === 0 && !err && searchInfo && searchInfo.route_exists === false && <div className="empty route-empty">
+          <h3>{t('results.noDirectRoute')}</h3>
+          <div className="route-suggestions">
+            {searchInfo.suggestions && searchInfo.suggestions.reverse && <button type="button" className="btn ghost" onClick={() => onSearch({
+              from: searchInfo.suggestions.reverse.from_id,
+              to: searchInfo.suggestions.reverse.to_id,
+              date: query.date,
+            })}>{t('results.reverseRoute', { route: `${cityName(searchInfo.suggestions.reverse.from_city)} → ${cityName(searchInfo.suggestions.reverse.to_city)}` })}</button>}
+            {searchInfo.suggestions && searchInfo.suggestions.from_origin && searchInfo.suggestions.from_origin.length > 0 && <>
+              <h4>{t('results.originRoutes', { city: name(query.from) })}</h4>
+              {searchInfo.suggestions.from_origin.map((route) => <button type="button" className="btn ghost" key={`${route.from_id}:${route.to_id}`} onClick={() => onSearch({
+                from: route.from_id,
+                to: route.to_id,
+                date: query.date,
+              })}>{cityName(route.from_city)} → {cityName(route.to_city)}</button>)}
+            </>}
+            {searchInfo.suggestions && searchInfo.suggestions.via_colombo && <button type="button" className="btn gold" onClick={() => onSearch({
+              from: searchInfo.suggestions.via_colombo.from_id,
+              to: searchInfo.suggestions.via_colombo.via_id,
+              date: query.date,
+            })}>{t('results.viaColombo', {
+              first: `${cityName(searchInfo.suggestions.via_colombo.from_city)} → ${cityName(searchInfo.suggestions.via_colombo.via_city)}`,
+              second: `${cityName(searchInfo.suggestions.via_colombo.via_city)} → ${cityName(searchInfo.suggestions.via_colombo.to_city)}`,
+            })}</button>}
+          </div>
+        </div>}
+        {trips && trips.length === 0 && !err && searchInfo && searchInfo.route_exists !== false && <div className="empty">{t('results.noBuses')}</div>}
         {trips && trips.length > 0 && <div className="filter-results-layout">
           <aside className="result-sidebar">{filterPanel('desktop')}</aside>
           <section className="filter-results-main" aria-label={t('results.resultsLabel')}>
@@ -779,7 +1439,7 @@ function Seats({ tripId, onBack, onBooked, user, onLogin, selectionMode = 'onewa
             {selectionMode !== 'oneway'
               ? <p className="booking-account-note">{t('seats.selectLegInfo')}</p>
               : user
-              ? <p className="booking-account-note">{t('seats.bookingAs', { name: user.name })}</p>
+              ? <p className="booking-account-note booking-account-user"><Avatar user={user} size={28} className="avatar-booking" /><span>{t('seats.bookingAs', { name: user.name })}</span></p>
               : <p className="booking-account-note">{t('seats.accountPrompt')} <button type="button" className="text-link" onClick={onLogin}>{t('seats.loginTrack')}</button></p>}
             <div className="sum-row"><span>{t('seats.seats')}</span><span>{picked.length ? <span className="chips">{picked.map((s) => <span className="chip" key={s}>{s}</span>)}</span> : '—'}</span></div>
             <div className="sum-row"><span>{t('seats.farePerSeat')}</span><span>{lkr(trip.fare)}</span></div>
@@ -862,7 +1522,7 @@ function RoundTripConfirm({ outbound, returnLeg, user, onBooked, onBack }) {
         <div className="round-legs">{summary(t('round.outbound'), outbound)}{summary(t('round.return'), returnLeg)}<div className="round-grand-total"><span>{t('round.total')}</span><b>{lkr(grandTotal)}</b></div></div>
         <form className="panel round-passenger" onSubmit={submit}>
           <h3>{t('round.passengerDetails')}</h3>
-          {user ? <p className="booking-account-note">{t('seats.bookingAs', { name: user.name })}</p> : <p className="booking-account-note">{t('round.guestNote')}</p>}
+          {user ? <p className="booking-account-note booking-account-user"><Avatar user={user} size={28} className="avatar-booking" /><span>{t('seats.bookingAs', { name: user.name })}</span></p> : <p className="booking-account-note">{t('round.guestNote')}</p>}
           <div className="form-grid">
             <div className="field"><label htmlFor="round-passenger-name">{t('round.passengerName')}</label><input id="round-passenger-name" required minLength="2" maxLength="100" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} /></div>
             <div className="field"><label htmlFor="round-passenger-phone">{t('round.phone')}</label><input id="round-passenger-phone" required minLength="9" inputMode="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></div>
@@ -977,6 +1637,7 @@ function TicketPage({ ref_, phone, user, onHome }) {
       {err && <div className="err">{err}</div>}
       {!b && !err && <div className="spinner" />}
       {b && <><Ticket b={b} onChanged={load} /><div className="no-print" style={{ textAlign: 'center', marginTop: 16 }}><button className="back" style={{ color: 'var(--g700)' }} onClick={onHome}>{t('ticket.back')}</button></div></>}
+      <ContactHelp />
     </div></div>
   );
 }
@@ -1005,6 +1666,7 @@ function Manage() {
           </form>
         )}
         {b && <><Ticket b={b} onChanged={find} /><div style={{ textAlign: 'center', marginTop: 16 }}><button className="back" style={{ color: 'var(--g700)' }} onClick={() => setB(null)}>{t('manage.searchAnother')}</button></div></>}
+        <ContactHelp />
       </div></div>
     </>
   );
@@ -1073,8 +1735,344 @@ function Auth({ mode, onMode, onSuccess }) {
   );
 }
 
+function AvatarCropper({ src, zoom, rotation, onReady, onZoomChange }) {
+  const canvasRef = useRef(null);
+  const imageRef = useRef(null);
+  const dragRef = useRef(null);
+  const pointersRef = useRef(new Map());
+  const pinchRef = useRef(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [imageReady, setImageReady] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setImageReady(false);
+    setOffset({ x: 0, y: 0 });
+    const image = new Image();
+    image.onload = () => {
+      if (active) {
+        imageRef.current = image;
+        setImageReady(true);
+        if (onReady) onReady();
+      }
+    };
+    image.src = src;
+    return () => {
+      active = false;
+      imageRef.current = null;
+    };
+  }, [src, onReady]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const image = imageRef.current;
+    if (!canvas || !image) return;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const radians = rotation * Math.PI / 180;
+    const sourceMax = Math.min(image.naturalWidth, image.naturalHeight);
+    const scale = 512 / sourceMax * zoom;
+    const rotatedWidth = (Math.abs(image.naturalWidth * Math.cos(radians)) + Math.abs(image.naturalHeight * Math.sin(radians))) * scale;
+    const rotatedHeight = (Math.abs(image.naturalWidth * Math.sin(radians)) + Math.abs(image.naturalHeight * Math.cos(radians))) * scale;
+    const maxX = Math.max(0, (rotatedWidth - 512) / 2);
+    const maxY = Math.max(0, (rotatedHeight - 512) / 2);
+    const safeOffset = {
+      x: Math.max(-maxX, Math.min(maxX, offset.x)),
+      y: Math.max(-maxY, Math.min(maxY, offset.y)),
+    };
+    if (safeOffset.x !== offset.x || safeOffset.y !== offset.y) setOffset(safeOffset);
+    context.clearRect(0, 0, 512, 512);
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, 512, 512);
+    context.save();
+    context.translate(256 + safeOffset.x, 256 + safeOffset.y);
+    context.rotate(radians);
+    context.scale(scale, scale);
+    context.drawImage(image, -image.naturalWidth / 2, -image.naturalHeight / 2);
+    context.restore();
+  }, [src, zoom, rotation, offset, imageReady]);
+
+  const pointerDown = (event) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointersRef.current.size >= 2) {
+      const points = Array.from(pointersRef.current.values()).slice(0, 2);
+      pinchRef.current = {
+        distance: Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y),
+        zoom,
+      };
+      dragRef.current = null;
+    } else {
+      dragRef.current = { x: event.clientX, y: event.clientY };
+    }
+  };
+  const pointerMove = (event) => {
+    if (!pointersRef.current.has(event.pointerId)) return;
+    pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointersRef.current.size >= 2 && pinchRef.current) {
+      const points = Array.from(pointersRef.current.values()).slice(0, 2);
+      const distance = Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+      if (pinchRef.current.distance > 0) {
+        onZoomChange(Math.max(1, Math.min(3, pinchRef.current.zoom * distance / pinchRef.current.distance)));
+      }
+      return;
+    }
+    if (!dragRef.current) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const factor = 512 / Math.max(1, bounds.width);
+    const dx = (event.clientX - dragRef.current.x) * factor;
+    const dy = (event.clientY - dragRef.current.y) * factor;
+    dragRef.current = { x: event.clientX, y: event.clientY };
+    setOffset((current) => ({ x: current.x + dx, y: current.y + dy }));
+  };
+  const pointerEnd = (event) => {
+    pointersRef.current.delete(event.pointerId);
+    pinchRef.current = null;
+    if (pointersRef.current.size === 1) {
+      const point = pointersRef.current.values().next().value;
+      dragRef.current = { x: point.x, y: point.y };
+    } else {
+      dragRef.current = null;
+    }
+  };
+  return <canvas
+    ref={canvasRef}
+    className="avatar-crop-canvas"
+    width="512"
+    height="512"
+    role="img"
+    aria-label={t('profile.cropTitle')}
+    onPointerDown={pointerDown}
+    onPointerMove={pointerMove}
+    onPointerUp={pointerEnd}
+    onPointerCancel={pointerEnd}
+  />;
+}
+
+function MyProfile({ user, onUserUpdated, onBack }) {
+  const [cropSrc, setCropSrc] = useState('');
+  const [cropOpen, setCropOpen] = useState(false);
+  const [cropReady, setCropReady] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [rotation, setRotation] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [message, setMessage] = useState('');
+  const [messageError, setMessageError] = useState(false);
+  const inputRef = useRef(null);
+  const modalRef = useRef(null);
+  const pickerTriggerRef = useRef(null);
+  const toastTimer = useRef(null);
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+
+  useEffect(() => () => {
+    window.clearTimeout(toastTimer.current);
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+  }, [cropSrc]);
+
+  useEffect(() => {
+    if (!cropOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const focusables = () => Array.from(modalRef.current.querySelectorAll('button:not(:disabled), input:not(:disabled)'))
+      .filter((element) => element.offsetParent !== null);
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && !busyRef.current) {
+        event.preventDefault();
+        setCropOpen(false);
+      }
+      if (event.key !== 'Tab') return;
+      const items = focusables();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !modalRef.current.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !modalRef.current.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    const frame = window.requestAnimationFrame(() => modalRef.current?.querySelector('.avatar-crop-close')?.focus());
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', onKeyDown);
+      window.cancelAnimationFrame(frame);
+      if (pickerTriggerRef.current) pickerTriggerRef.current.focus();
+    };
+  }, [cropOpen]);
+
+  const showMessage = (text, isError = false) => {
+    setMessage(text);
+    setMessageError(isError);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setMessage(''), 2600);
+  };
+  const handleCropReady = useCallback(() => setCropReady(true), []);
+
+  const openPicker = (event, input) => {
+    pickerTriggerRef.current = event.currentTarget;
+    input.current?.click();
+  };
+
+  const chooseFile = (file) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      showMessage(t('api.avatarUnsupportedType'), true);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showMessage(t('api.avatarTooLarge'), true);
+      return;
+    }
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(URL.createObjectURL(file));
+    setZoom(1);
+    setRotation(0);
+    setCropReady(false);
+    setCropOpen(true);
+    if (inputRef.current) inputRef.current.value = '';
+  };
+
+  const uploadCrop = () => {
+    const canvas = modalRef.current && modalRef.current.querySelector('.avatar-crop-canvas');
+    if (!canvas) return;
+    setBusy(true);
+    setProgress(0);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        setBusy(false);
+        showMessage(t('api.avatarUploadFailed'), true);
+        return;
+      }
+      const formData = new FormData();
+      formData.append('avatar', blob, 'profile.jpg');
+      const request = new XMLHttpRequest();
+      request.open('POST', API + 'avatar_upload.php');
+      request.withCredentials = true;
+      request.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+      request.upload.onprogress = (event) => {
+        if (event.lengthComputable) setProgress(Math.round(event.loaded / event.total * 100));
+      };
+      request.onload = () => {
+        let data;
+        try { data = JSON.parse(request.responseText); } catch (error) { data = null; }
+        if (request.status >= 200 && request.status < 300 && data && data.user) {
+          onUserUpdated(data.user);
+          setCropOpen(false);
+          showMessage(t('profile.saved'));
+        } else {
+          if (data && data.user) {
+            onUserUpdated(data.user);
+            setCropOpen(false);
+          }
+          const failure = new Error(data && data.error || t('api.avatarUploadFailed'));
+          failure.data = data;
+          failure.status = request.status;
+          showMessage(request.status === 401 ? t('api.avatarLoginRequired') : errorMessage(failure), true);
+        }
+        setBusy(false);
+      };
+      request.onerror = () => {
+        setBusy(false);
+        showMessage(t('api.avatarUploadFailed'), true);
+      };
+      request.onabort = () => {
+        setBusy(false);
+        showMessage(t('api.avatarUploadFailed'), true);
+      };
+      request.send(formData);
+    }, 'image/jpeg', 0.9);
+  };
+
+  const removePhoto = async () => {
+    if (!user.avatar_url || !window.confirm(t('profile.removeConfirm'))) return;
+    setBusy(true);
+    try {
+      const request = await fetch(API + 'avatar_delete.php', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
+      const data = await request.json();
+      if (!request.ok || !data.user) {
+        if (data.user) onUserUpdated(data.user);
+        const failure = new Error(data.error || t('api.avatarDeleteFailed'));
+        failure.data = data;
+        failure.status = request.status;
+        throw failure;
+      }
+      onUserUpdated(data.user);
+      showMessage(t('profile.removed'));
+    } catch (error) {
+      showMessage(error.status === 401 ? t('api.avatarLoginRequired') : errorMessage(error), true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const dragOver = (event) => event.preventDefault();
+  const dropFile = (event) => {
+    event.preventDefault();
+    chooseFile(event.dataTransfer.files && event.dataTransfer.files[0]);
+  };
+
+  return (
+    <>
+      <div className="page-head"><div className="container">
+        <button type="button" className="back" onClick={onBack}>{t('profile.back')}</button>
+        <h2>{t('profile.title')}</h2>
+        <p>{t('profile.intro')}</p>
+      </div></div>
+      <div className="page profile-page"><div className="container">
+        <section className="panel profile-editor" onDragOver={dragOver} onDrop={dropFile}>
+          <div className="profile-editor-avatar">
+            <Avatar user={user} size={120} className="avatar-profile-large" onClick={(event) => openPicker(event, inputRef)} ariaLabel={t('profile.editAvatar')} editBadge />
+          </div>
+          <div className="profile-editor-details">
+            <h3>{user.name}</h3><p>{user.email}</p><p>{user.phone}</p>
+            <div className="profile-editor-actions">
+              <button type="button" className="btn gold" onClick={(event) => openPicker(event, inputRef)} disabled={busy}>{t(user.avatar_url ? 'profile.changePhoto' : 'profile.uploadPhoto')}</button>
+              <button type="button" className="btn ghost" onClick={(event) => {
+                pickerTriggerRef.current = event.currentTarget;
+                document.getElementById('avatar-camera-input')?.click();
+              }} disabled={busy}>{t('profile.takePhoto')}</button>
+              {user.avatar_url && <button type="button" className="btn ghost avatar-remove" onClick={removePhoto} disabled={busy}>{t('profile.removePhoto')}</button>}
+            </div>
+            <div className="avatar-drop-hint"><b>{t('profile.dropTitle')}</b><span>{t('profile.dropHint')}</span></div>
+          </div>
+          <input ref={inputRef} className="avatar-file-input" type="file" accept="image/jpeg,image/png,image/webp" aria-label={t('profile.uploadPhoto')} onChange={(event) => chooseFile(event.target.files && event.target.files[0])} />
+          <input id="avatar-camera-input" className="avatar-file-input" type="file" accept="image/jpeg,image/png,image/webp" capture="user" aria-label={t('profile.takePhoto')} onChange={(event) => chooseFile(event.target.files && event.target.files[0])} />
+        </section>
+      </div></div>
+      {message && <div className={`avatar-toast${messageError ? ' is-error' : ''}`} role={messageError ? 'alert' : 'status'}>{message}</div>}
+      {cropOpen && <div className="avatar-crop-backdrop" onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) setCropOpen(false);
+      }}>
+        <section className="avatar-crop-dialog" role="dialog" aria-modal="true" aria-labelledby="avatar-crop-title" ref={modalRef}>
+          <button type="button" className="avatar-crop-close" aria-label={t('profile.cancel')} onClick={() => !busy && setCropOpen(false)} disabled={busy}>×</button>
+          <h2 id="avatar-crop-title">{t('profile.cropTitle')}</h2>
+          <div className="avatar-crop-window"><AvatarCropper src={cropSrc} zoom={zoom} rotation={rotation} onReady={handleCropReady} onZoomChange={setZoom} /></div>
+          <label className="avatar-zoom-control">{t('profile.zoom')}
+            <input type="range" min="1" max="3" step="0.01" value={zoom} onChange={(event) => setZoom(Number(event.target.value))} disabled={busy} />
+          </label>
+          <div className="avatar-crop-actions">
+            <button type="button" className="btn ghost" onClick={() => setRotation((current) => (current + 90) % 360)} disabled={busy}>{t('profile.rotate')}</button>
+            <button type="button" className="btn ghost" onClick={() => setCropOpen(false)} disabled={busy}>{t('profile.cancel')}</button>
+            <button type="button" className="btn gold" onClick={uploadCrop} disabled={busy || !cropReady}>{busy ? t('profile.progress', { percent: progress }) : t('profile.save')}</button>
+          </div>
+          {busy && <progress className="avatar-upload-progress" max="100" value={progress} aria-label={t('profile.uploading')} />}
+        </section>
+      </div>}
+    </>
+  );
+}
+
 /* ================= PASSENGER BOOKING HISTORY ================= */
-function MyBookings({ user, onOpenTicket, onBook, onAuthRequired }) {
+function MyBookings({ user, onOpenTicket, onBook, onAuthRequired, onEditProfile }) {
   const [filter, setFilter] = useState('upcoming');
   const [bookings, setBookings] = useState([]);
   const [busy, setBusy] = useState(true);
@@ -1133,7 +2131,7 @@ function MyBookings({ user, onOpenTicket, onBook, onAuthRequired }) {
       </div></div>
       <div className="page bookings-page"><div className="container">
         <section className="profile-panel panel">
-          <div className="profile-avatar">{user.name.trim().charAt(0).toUpperCase()}</div>
+          <Avatar user={user} size={72} className="avatar-profile-bookings" onClick={onEditProfile} ariaLabel={t('profile.editAvatar')} editBadge />
           <div><small>{t('bookings.profile')}</small><h3>{user.name}</h3><p>{user.email} · {user.phone}</p></div>
         </section>
         <div className="booking-tabs" role="tablist" aria-label={t('bookings.history')}>
@@ -1337,9 +2335,12 @@ function LiveTracking() {
 function App() {
   const { lang } = useLang();
   const [page, setPage] = useState('home');
+  const [locationOpen, setLocationOpen] = useState(false);
+  const locationTrigger = useRef(null);
   const [user, setUser] = useState(null);
   const [cities, setCities] = useState([]);
   const [popular, setPopular] = useState([]);
+  const [destinations, setDestinations] = useState({});
   const [query, setQuery] = useState(null);
   const [roundTrip, setRoundTrip] = useState(null);
   const [tripId, setTripId] = useState(null);
@@ -1348,8 +2349,13 @@ function App() {
   const [keepSeatsMounted, setKeepSeatsMounted] = useState(false);
   const [ticketReturn, setTicketReturn] = useState('home');
   const [loadErr, setLoadErr] = useState('');
+  const openLocation = useCallback((trigger) => {
+    locationTrigger.current = trigger;
+    setLocationOpen(true);
+  }, []);
+  const closeLocation = useCallback(() => setLocationOpen(false), []);
 
-  useEffect(() => { get('cities.php').then((d) => { setCities(d.cities); setPopular(d.popular); }).catch((e) => setLoadErr(errorMessage(e))); }, []);
+  useEffect(() => { get('cities.php').then((d) => { setCities(d.cities); setPopular(d.popular); setDestinations(d.destinations || {}); }).catch((e) => setLoadErr(errorMessage(e))); }, []);
   useEffect(() => {
     get('me.php')
       .then((data) => setUser(data.user))
@@ -1359,6 +2365,7 @@ function App() {
     const titles = {
       home: t('title.home'),
       results: `TripLink | ${t('nav.routes')}`,
+      profile: `TripLink | ${t('profile.title')}`,
       seats: `TripLink | ${t('seats.chooseTitle')}`,
       roundConfirm: `TripLink | ${t('round.reviewTitle')}`,
       ticket: `TripLink | ${t('ticket.bookingRef')}`,
@@ -1457,18 +2464,21 @@ function App() {
   const keepSeatPage = page === 'seats' || (keepSeatsMounted && (page === 'login' || page === 'register'));
 
   return (
+    <LocationContext.Provider value={openLocation}>
     <>
       <Nav page={page} go={go} user={user} onLogin={() => beginLogin()} onLogout={handleLogout} onBookings={openBookings} />
       {loadErr && <div className="err" style={{ margin: '90px 20px 0' }}>{loadErr}</div>}
       {page === 'home' && <>
-        <Hero cities={cities} onSearch={search} />
+        <Hero cities={cities} destinations={destinations} onSearch={search} />
         <Features />
         <PopularRoutes popular={popular} cities={cities} onPick={search} />
         <How />
+        <ContactSection />
       </>}
       {page === 'results' && query && <Results
         query={query}
         cities={cities}
+        onSearch={search}
         roundTripStage={roundTrip && roundTrip.stage}
         outboundSelection={roundTrip && roundTrip.outbound}
         onChangeOutbound={changeOutbound}
@@ -1494,14 +2504,18 @@ function App() {
       />}
       {page === 'ticket' && done && <TicketPage ref_={done.ref} phone={done.phone} user={user} onHome={() => go(ticketReturn)} />}
       {page === 'manage' && <Manage />}
+      {page === 'profile' && user && <MyProfile user={user} onUserUpdated={setUser} onBack={() => go('bookings')} />}
       {page === 'login' && <Auth mode="login" onMode={go} onSuccess={authSuccess} />}
       {page === 'register' && <Auth mode="register" onMode={go} onSuccess={authSuccess} />}
-      {page === 'bookings' && user && <MyBookings user={user} onOpenTicket={openTicket} onBook={() => go('home', 'top')} onAuthRequired={requireBookingsLogin} />}
+      {page === 'bookings' && user && <MyBookings user={user} onOpenTicket={openTicket} onBook={() => go('home', 'top')} onAuthRequired={requireBookingsLogin} onEditProfile={() => go('profile')} />}
       {page === 'live' && <LiveTracking />}
       <Footer go={go} onBookings={openBookings} onLogin={() => beginLogin()} />
       <MobileTabs page={page} go={go} user={user} onLogin={() => beginLogin()} onBookings={openBookings} />
+      <LocationModal open={locationOpen} onClose={closeLocation} triggerRef={locationTrigger} />
     </>
+    </LocationContext.Provider>
   );
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<LangProvider><App /></LangProvider>);
+ReactDOM.createRoot(document.getElementById('view-switcher-root')).render(<ViewSwitcher />);

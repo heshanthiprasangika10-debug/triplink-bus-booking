@@ -41,8 +41,8 @@ $activeLeg = 'outbound';
 try {
     $pdo->beginTransaction();
     $tripQuery = $pdo->prepare(
-        "SELECT t.id, t.depart_date, t.depart_time, t.arrive_time, t.fare, b.total_seats,
-                r.from_city, r.to_city
+        "SELECT t.id, t.depart_date, t.depart_time, t.arrive_time, t.fare, t.status, b.total_seats,
+                b.active AS bus_active, r.active AS route_active, r.from_city, r.to_city
          FROM trips t
          JOIN buses b ON b.id = t.bus_id
          JOIN routes r ON r.id = t.route_id
@@ -59,6 +59,13 @@ try {
     $outTrip = $tripRows[$legs['outbound']['trip_id']] ?? false;
     $returnTrip = $tripRows[$legs['return']['trip_id']] ?? false;
     if (!$outTrip || !$returnTrip) throw new RuntimeException('One of the selected trips could not be found.');
+    if ($outTrip['status'] !== 'scheduled' || $returnTrip['status'] !== 'scheduled') {
+        throw new RuntimeException('One of the selected trips was cancelled by the operator.');
+    }
+    if (!(int)$outTrip['bus_active'] || !(int)$returnTrip['bus_active']
+        || !(int)$outTrip['route_active'] || !(int)$returnTrip['route_active']) {
+        throw new RuntimeException('One of the selected trips is no longer available.');
+    }
 
     if ((int)$outTrip['from_city'] !== (int)$returnTrip['to_city']
         || (int)$outTrip['to_city'] !== (int)$returnTrip['from_city']) {

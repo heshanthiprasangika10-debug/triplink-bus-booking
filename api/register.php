@@ -26,7 +26,8 @@ try {
     ]);
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)db()->lastInsertId();
-    json_out(['user' => current_user()], 201);
+    $user = current_user();
+    json_out(['user' => $user ? public_user($user) : null], 201);
 } catch (PDOException $e) {
     if ($e->getCode() === '23000') json_out(['error' => 'An account with this email already exists.'], 409);
     json_out(['error' => 'Registration failed. Please try again.'], 500);

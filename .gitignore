@@ -3,3 +3,10 @@ api/outbox/
 *.log
 .vscode/
 Thumbs.db
+assets/uploads/*
+!assets/uploads/.htaccess
+!assets/uploads/index.html
+!assets/uploads/.gitkeep
+!assets/uploads/avatars/
+assets/uploads/avatars/*
+!assets/uploads/avatars/.gitkeep

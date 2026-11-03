@@ -22,11 +22,16 @@ $pdo = db();
 try {
     $pdo->beginTransaction();
 
-    $t = $pdo->prepare("SELECT t.fare, t.depart_date, t.depart_time, b.total_seats
-                        FROM trips t JOIN buses b ON b.id = t.bus_id WHERE t.id = :id FOR UPDATE");
+    $t = $pdo->prepare("SELECT t.fare, t.depart_date, t.depart_time, t.status, b.total_seats,
+                               b.active AS bus_active, r.active AS route_active
+                        FROM trips t JOIN buses b ON b.id = t.bus_id
+                        JOIN routes r ON r.id = t.route_id
+                        WHERE t.id = :id FOR UPDATE");
     $t->execute([':id' => $tripId]);
     $trip = $t->fetch();
     if (!$trip) throw new RuntimeException('Trip not found');
+    if ($trip['status'] !== 'scheduled') throw new RuntimeException('This trip was cancelled by the operator.');
+    if (!(int)$trip['bus_active'] || !(int)$trip['route_active']) throw new RuntimeException('This trip is no longer available.');
 
     if ($trip['depart_date'] . ' ' . $trip['depart_time'] < date('Y-m-d H:i:s'))
         throw new RuntimeException('This bus has already departed.');
@@ -68,16 +73,28 @@ try {
     if ($pdo->inTransaction()) $pdo->rollBack();
     // 23000 = duplicate key -> someone took the seat first
     if ($e->getCode() === '23000') {
-        json_out(['error' => 'Sorry, one of the seats was just booked by someone else. Please pick again.', 'code' => 'seatConflict', 'conflict' => true], 409);
+        json_out(array_merge([
+            'error' => 'Sorry, one of the seats was just booked by someone else. Please pick again.',
+            'code' => 'seatConflict',
+            'conflict' => true,
+        ], api_debug_exception($e)), 409);
     }
-    json_out(['error' => 'Booking failed. Please try again.', 'code' => 'bookingFailed'], 500);
+    json_out(array_merge([
+        'error' => 'Booking failed. Please try again.',
+        'code' => 'bookingFailed',
+    ], api_debug_exception($e)), 500);
 } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     $code = match ($e->getMessage()) {
         'Trip not found' => 'tripNotFound',
         'This bus has already departed.' => 'departed',
+        'This trip was cancelled by the operator.' => 'tripCancelled',
         'Invalid seat number.' => 'seatNumber',
         default => 'bookingFailed',
     };
-    json_out(['error' => $e->getMessage(), 'code' => $code], 400);
+    error_log('TripLink API exception: ' . $e->getMessage());
+    $publicError = $code === 'bookingFailed' ? 'Booking failed. Please try again.' : $e->getMessage();
+    $response = ['error' => $publicError, 'code' => $code];
+    if (DEBUG) $response['debug_message'] = $e->getMessage();
+    json_out($response, 400);
 }

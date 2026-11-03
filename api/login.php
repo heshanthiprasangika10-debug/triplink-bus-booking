@@ -35,4 +35,5 @@ if (!$record || !password_verify($password, $record['password_hash'])) {
 session_regenerate_id(true);
 $_SESSION['user_id'] = (int)$record['id'];
 unset($_SESSION['login_attempts'][$ipKey]);
-json_out(['user' => current_user()]);
+$user = current_user();
+json_out(['user' => $user ? public_user($user) : null]);

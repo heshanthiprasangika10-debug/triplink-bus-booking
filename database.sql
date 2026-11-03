@@ -1,5 +1,5 @@
 -- TripLink database  (MySQL / MariaDB)
--- Select the target database in phpMyAdmin, then use Import.
+-- Import into the database selected in phpMyAdmin; this file does not create or select a database.
 
 DROP TABLE IF EXISTS booking_seats;
 DROP TABLE IF EXISTS bookings;
@@ -11,7 +11,11 @@ DROP TABLE IF EXISTS cities;
 
 CREATE TABLE cities (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  name VARCHAR(60) NOT NULL UNIQUE
+  name VARCHAR(60) NOT NULL UNIQUE,
+  lat DECIMAL(9,6) NULL,
+  lng DECIMAL(9,6) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 CREATE TABLE routes (
@@ -19,6 +23,9 @@ CREATE TABLE routes (
   from_city INT NOT NULL,
   to_city INT NOT NULL,
   distance_km INT NOT NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (from_city) REFERENCES cities(id),
   FOREIGN KEY (to_city) REFERENCES cities(id),
   UNIQUE KEY uq_route (from_city, to_city)
@@ -30,7 +37,11 @@ CREATE TABLE buses (
   reg_no VARCHAR(20) NOT NULL,
   bus_type ENUM('Normal','Semi Luxury','Luxury','Super Luxury') NOT NULL DEFAULT 'Semi Luxury',
   total_seats INT NOT NULL DEFAULT 40,
-  amenities VARCHAR(160) DEFAULT 'AC,Charging,WiFi'
+  amenities VARCHAR(160) DEFAULT 'AC,Charging,WiFi',
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_buses_reg_no (reg_no)
 ) ENGINE=InnoDB;
 
 -- Daily timetable template. Real trips (dated) are generated from this automatically.
@@ -41,6 +52,9 @@ CREATE TABLE schedules (
   depart_time TIME NOT NULL,
   duration_min INT NOT NULL,
   fare DECIMAL(10,2) NOT NULL,
+  active TINYINT(1) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (route_id) REFERENCES routes(id),
   FOREIGN KEY (bus_id) REFERENCES buses(id)
 ) ENGINE=InnoDB;
@@ -54,6 +68,7 @@ CREATE TABLE trips (
   depart_time TIME NOT NULL,
   arrive_time TIME NOT NULL,
   fare DECIMAL(10,2) NOT NULL,
+  status ENUM('scheduled','cancelled') NOT NULL DEFAULT 'scheduled',
   UNIQUE KEY uq_trip (schedule_id, depart_date),
   KEY idx_trips_depart_date (depart_date),
   FOREIGN KEY (schedule_id) REFERENCES schedules(id),
@@ -67,7 +82,9 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(120) NOT NULL UNIQUE,
   phone VARCHAR(20) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  avatar_path VARCHAR(255) NULL,
+  avatar_updated_at DATETIME NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE bookings (
@@ -100,10 +117,36 @@ CREATE TABLE booking_seats (
   FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE admin_audit (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  admin VARCHAR(100) NOT NULL DEFAULT 'admin',
+  action VARCHAR(30) NOT NULL,
+  entity VARCHAR(30) NOT NULL,
+  entity_id BIGINT UNSIGNED NULL,
+  details JSON NULL,
+  ip VARCHAR(45) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_admin_audit_created_at (created_at),
+  KEY idx_admin_audit_entity (entity, entity_id)
+) ENGINE=InnoDB;
+
 -- ---------- Sample data ----------
 INSERT INTO cities (name) VALUES
 ('Colombo'),('Kandy'),('Galle'),('Matara'),('Jaffna'),('Anuradhapura'),
 ('Nuwara Eliya'),('Badulla'),('Batticaloa'),('Trincomalee'),('Kurunegala'),('Ratnapura');
+
+UPDATE cities SET lat = 6.927100, lng = 79.861200 WHERE name = 'Colombo';
+UPDATE cities SET lat = 7.290600, lng = 80.633700 WHERE name = 'Kandy';
+UPDATE cities SET lat = 6.053500, lng = 80.221000 WHERE name = 'Galle';
+UPDATE cities SET lat = 5.954900, lng = 80.555000 WHERE name = 'Matara';
+UPDATE cities SET lat = 9.661500, lng = 80.025500 WHERE name = 'Jaffna';
+UPDATE cities SET lat = 8.311400, lng = 80.403700 WHERE name = 'Anuradhapura';
+UPDATE cities SET lat = 6.949700, lng = 80.789100 WHERE name = 'Nuwara Eliya';
+UPDATE cities SET lat = 6.993400, lng = 81.055000 WHERE name = 'Badulla';
+UPDATE cities SET lat = 7.731000, lng = 81.674700 WHERE name = 'Batticaloa';
+UPDATE cities SET lat = 8.587400, lng = 81.215200 WHERE name = 'Trincomalee';
+UPDATE cities SET lat = 7.486300, lng = 80.364700 WHERE name = 'Kurunegala';
+UPDATE cities SET lat = 6.705600, lng = 80.384700 WHERE name = 'Ratnapura';
 
 -- routes (id order: 1..)  both directions
 INSERT INTO routes (from_city,to_city,distance_km) VALUES

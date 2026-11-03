@@ -29,13 +29,14 @@ try {
         "SELECT t.id, t.depart_date, t.depart_time, t.arrive_time,
                 b.name AS bus_name, b.bus_type, b.reg_no, b.total_seats,
                b.id AS bus_id, cf.name AS from_city, ct.name AS to_city, r.distance_km,
+               cf.lat AS from_lat, cf.lng AS from_lng, ct.lat AS to_lat, ct.lng AS to_lng,
                 (SELECT COUNT(*) FROM booking_seats bs WHERE bs.trip_id = t.id) AS seats_sold
          FROM trips t
          JOIN routes r ON r.id = t.route_id
          JOIN buses b ON b.id = t.bus_id
          JOIN cities cf ON cf.id = r.from_city
          JOIN cities ct ON ct.id = r.to_city
-         WHERE t.depart_date IN (:today, :yesterday)
+         WHERE t.depart_date IN (:today, :yesterday) AND t.status = 'scheduled'
          ORDER BY t.id"
     );
     $stmt->execute([':today' => $today, ':yesterday' => $yesterday]);
@@ -73,8 +74,12 @@ try {
             $progress = ($now->getTimestamp() - $start->getTimestamp()) / $durationSeconds;
         }
 
-        [$fromLat, $fromLng] = $cityCoordinates[$trip['from_city']];
-        [$toLat, $toLng] = $cityCoordinates[$trip['to_city']];
+        [$fallbackFromLat, $fallbackFromLng] = $cityCoordinates[$trip['from_city']];
+        [$fallbackToLat, $fallbackToLng] = $cityCoordinates[$trip['to_city']];
+        $fromLat = $trip['from_lat'] !== null ? (float)$trip['from_lat'] : $fallbackFromLat;
+        $fromLng = $trip['from_lng'] !== null ? (float)$trip['from_lng'] : $fallbackFromLng;
+        $toLat = $trip['to_lat'] !== null ? (float)$trip['to_lat'] : $fallbackToLat;
+        $toLng = $trip['to_lng'] !== null ? (float)$trip['to_lng'] : $fallbackToLng;
 
         $buses[] = [
             'trip_id' => (int)$trip['id'],
@@ -100,5 +105,8 @@ try {
     usort($buses, fn($a, $b) => $b['progress'] <=> $a['progress']);
     json_out(['demo' => $demo, 'buses' => $buses, 'server_time' => $now->format('H:i:s')]);
 } catch (Throwable $e) {
-    json_out(['error' => 'Could not load live bus tracking. Check the database configuration and trip tables.'], 500);
+    json_out(array_merge([
+        'error' => 'Could not load live bus tracking. Check the database configuration and trip tables.',
+        'code' => 'liveFailed',
+    ], api_debug_exception($e)), 500);
 }
